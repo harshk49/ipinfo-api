@@ -33,7 +33,7 @@ try {
   process.exit(1);
 }
 
-// POST /api/ip
+// POST /api/ip - For custom IPs
 app.post("/api/ip", (req, res) => {
   const { ip } = req.body;
 
@@ -59,25 +59,26 @@ app.post("/api/ip", (req, res) => {
   }
 });
 
-// Root route - for health checks
+// Root route
 app.get("/", (req, res) => {
   res.json({ status: "ok", message: "IP Info API is running" });
 });
 
-// GET /api/ip - Detect client IP and return country info
+// GET /api/ip - Detect client IP and return country
 app.get("/api/ip", (req, res) => {
-  // Get the client IP address
-  const ip = req.ip;
-  const cleanIp = ip.replace(/^::ffff:/, "");
+  const forwardedFor = req.headers["x-forwarded-for"];
+  const ip =
+    (typeof forwardedFor === "string" && forwardedFor.split(",")[0]) || req.ip;
+
+  const cleanIp = ip.replace(/^::ffff:/, "").trim();
 
   console.log(`Client IP detected: ${cleanIp}`);
 
-  // Check if IP is valid
-  if (!ip || !net.isIP(cleanIp)) {
+  if (!cleanIp || !net.isIP(cleanIp)) {
     return res.status(400).json({ error: "Invalid client IP address" });
   }
 
-  // Check if IP is a private/local address
+  // Check for local/private IPs
   const isPrivateIP =
     /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|127\.|::1|fc00:|fd00:|fe80:)/i.test(
       cleanIp
@@ -94,14 +95,7 @@ app.get("/api/ip", (req, res) => {
   }
 
   try {
-    // Look up the IP in the MaxMind database
     const result = reader.get(cleanIp);
-    console.log(
-      `IP lookup result:`,
-      result
-        ? `Found: ${result.country?.names?.en || "No country data"}`
-        : "Not found"
-    );
 
     if (!result || !result.country?.names?.en) {
       return res.status(404).json({
@@ -111,7 +105,10 @@ app.get("/api/ip", (req, res) => {
       });
     }
 
-    return res.json({ country: result.country.names.en, detectedIp: cleanIp });
+    return res.json({
+      country: result.country.names.en,
+      detectedIp: cleanIp,
+    });
   } catch (error) {
     console.error("Error processing IP:", error);
     return res
