@@ -80,38 +80,41 @@ async function ensureReaderInitialized(
 app.use("/api/ip", ensureReaderInitialized);
 
 // POST /api/ip - For custom IPs
-app.post("/api/ip", (req: Request<{}, {}, IPRequestBody>, res: Response) => {
-  const { ip } = req.body;
+app.post(
+  "/api/ip",
+  (req: Request<{}, {}, Partial<IPRequestBody>>, res: Response) => {
+    const { ip } = req.body;
 
-  if (!ip) {
-    return res
-      .status(400)
-      .json({ error: "IP address is required" } as ErrorResponse);
-  }
-
-  if (!net.isIP(ip)) {
-    return res
-      .status(400)
-      .json({ error: "Invalid IP address format" } as ErrorResponse);
-  }
-
-  try {
-    const result = reader.get(ip);
-
-    if (!result || !result.country?.names?.en) {
+    if (!ip) {
       return res
-        .status(404)
-        .json({ error: "Country not found" } as ErrorResponse);
+        .status(400)
+        .json({ error: "IP address is required" } as ErrorResponse);
     }
 
-    return res.json({ country: result.country.names.en } as CountryResponse);
-  } catch (error) {
-    console.error("Error processing IP:", error);
-    return res
-      .status(500)
-      .json({ error: "Internal server error" } as ErrorResponse);
+    if (!net.isIP(ip)) {
+      return res
+        .status(400)
+        .json({ error: "Invalid IP address format" } as ErrorResponse);
+    }
+
+    try {
+      const result = reader.get(ip);
+
+      if (!result || !result.country?.names?.en) {
+        return res
+          .status(404)
+          .json({ error: "Country not found" } as ErrorResponse);
+      }
+
+      return res.json({ country: result.country.names.en } as CountryResponse);
+    } catch (error) {
+      console.error("Error processing IP:", error);
+      return res
+        .status(500)
+        .json({ error: "Internal server error" } as ErrorResponse);
+    }
   }
-});
+);
 
 // Root route
 app.get("/", (_req: Request, res: Response) => {
@@ -122,7 +125,9 @@ app.get("/", (_req: Request, res: Response) => {
 app.get("/api/ip", (req: Request, res: Response) => {
   const forwardedFor = req.headers["x-forwarded-for"];
   const ip =
-    (typeof forwardedFor === "string" && forwardedFor.split(",")[0]) || req.ip;
+    (typeof forwardedFor === "string" && forwardedFor.split(",")[0]) ||
+    req.ip ||
+    "";
 
   const cleanIp = ip.replace(/^::ffff:/, "").trim();
 
@@ -167,12 +172,10 @@ app.get("/api/ip", (req: Request, res: Response) => {
     } as CountryResponse);
   } catch (error) {
     console.error("Error processing IP:", error);
-    return res
-      .status(500)
-      .json({
-        error: "Internal server error",
-        detectedIp: cleanIp,
-      } as ErrorResponse);
+    return res.status(500).json({
+      error: "Internal server error",
+      detectedIp: cleanIp,
+    } as ErrorResponse);
   }
 });
 
