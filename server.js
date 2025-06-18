@@ -3,11 +3,17 @@ const maxmind = require("maxmind");
 const path = require("path");
 const fs = require("fs");
 const net = require("net");
+const cors = require("cors");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 let reader;
 
+// Trust proxy to make req.ip work correctly behind proxies
+app.set("trust proxy", true);
+
+// Enable CORS for all routes
+app.use(cors());
 app.use(express.json());
 
 // Load MaxMind DB
@@ -53,6 +59,67 @@ app.post("/api/ip", (req, res) => {
   }
 });
 
+// Root route - for health checks
+app.get("/", (req, res) => {
+  res.json({ status: "ok", message: "IP Info API is running" });
+});
+
+// GET /api/ip - Detect client IP and return country info
+app.get("/api/ip", (req, res) => {
+  // Get the client IP address
+  const ip = req.ip;
+  const cleanIp = ip.replace(/^::ffff:/, "");
+
+  console.log(`Client IP detected: ${cleanIp}`);
+
+  // Check if IP is valid
+  if (!ip || !net.isIP(cleanIp)) {
+    return res.status(400).json({ error: "Invalid client IP address" });
+  }
+
+  // Check if IP is a private/local address
+  const isPrivateIP =
+    /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|127\.|::1|fc00:|fd00:|fe80:)/i.test(
+      cleanIp
+    );
+
+  if (isPrivateIP) {
+    console.log(`Private/local IP detected: ${cleanIp}`);
+    return res.json({
+      country: "Local Network",
+      message:
+        "This is a private/local IP address and won't be found in the GeoLite database",
+      detectedIp: cleanIp,
+    });
+  }
+
+  try {
+    // Look up the IP in the MaxMind database
+    const result = reader.get(cleanIp);
+    console.log(
+      `IP lookup result:`,
+      result
+        ? `Found: ${result.country?.names?.en || "No country data"}`
+        : "Not found"
+    );
+
+    if (!result || !result.country?.names?.en) {
+      return res.status(404).json({
+        error: "Country not found",
+        detectedIp: cleanIp,
+        tip: "If testing locally, try sending a specific IP via the POST /api/ip endpoint instead",
+      });
+    }
+
+    return res.json({ country: result.country.names.en, detectedIp: cleanIp });
+  } catch (error) {
+    console.error("Error processing IP:", error);
+    return res
+      .status(500)
+      .json({ error: "Internal server error", detectedIp: cleanIp });
+  }
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: "Not Found" });
@@ -65,5 +132,5 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log("Server is running on port:", PORT);
+  console.log(`Server is running on port ${PORT}`);
 });
